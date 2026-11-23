@@ -161,17 +161,21 @@ Add-Row 'ssh.github.com 直连 443' (Test-Ssh 'ssh.github.com' 443 '')
 foreach ($px in $proxies) {
     foreach ($p in @(443, 22)) { Add-Row "中转 经 $px 到 $p" (Test-Ssh $Relay $p $px) }
 }
+$localTried = 0; $localOk = 0
 foreach ($px in $localCandidates) {
+    if ($proxies.Contains($px)) { continue }
+    $localTried++
     $r = Test-Ssh $Relay 22 $px
-    if ($r -notmatch '不是 SOCKS5|代理回复：$|连上但不是') { Add-Row "中转 经 $px 到 22" $r }
+    if ($r -like '通*') { $localOk++; Add-Row "中转 经 $px 到 22" $r; Add-Proxy $px }
 }
+Add-Row '本机其他监听端口当代理试' ("试了 $localTried 个，通 $localOk 个")
 
 # ---------- machine info ----------
 $info = [ordered]@{
     Time = (Get-Date).ToString('o'); Computer = $env:COMPUTERNAME; User = "$env:USERDOMAIN\$env:USERNAME"
     IE = [ordered]@{ ProxyEnable = $ie.ProxyEnable; ProxyServer = $ie.ProxyServer; AutoConfigURL = $ie.AutoConfigURL; ProxyOverride = $ie.ProxyOverride }
-    Resolved = $resolved; WinHttp = $winhttp; Env = $envProxy; Listeners = $listeners; Proxies = @($proxies)
-    Probe = @($rows)
+    Resolved = $resolved; WinHttp = $winhttp; Env = $envProxy; Listeners = $listeners; Proxies = $proxies.ToArray()
+    Probe = $rows.ToArray()
 }
 try {
     $os = Get-CimInstance Win32_OperatingSystem
@@ -184,7 +188,7 @@ try {
 } catch {}
 $info.SshServices = @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*ssh*' } | ForEach-Object { "$($_.Name) $($_.Status)" })
 $info | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $Root 'probe.json') -Encoding UTF8
-[ordered]@{ Proxies = @($proxies) } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Root 'net.json') -Encoding UTF8
+[ordered]@{ Proxies = $proxies.ToArray() } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Root 'net.json') -Encoding UTF8
 
 # ---------- poller ----------
 $poll = @'
